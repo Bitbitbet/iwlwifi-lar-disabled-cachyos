@@ -7,7 +7,7 @@
 #   4. 编译必须带 LLVM=1：CachyOS 内核是 Clang+ThinLTO 构建的，用 gcc 会因为
 #      clang 专有标志（-fsplit-lto-unit / -mllvm 等）报错
 
-pkgname=iwlwifi-lar-patched-cachyos
+pkgname=iwlwifi-lar-disabled-cachyos
 
 _pkgbase=linux-cachyos
 _kver=7.2.8
@@ -18,11 +18,11 @@ _kernelpkgver="${_kver}-${_kernel_pkgrel}"          # 7.2.8-2
 _kernelrelease="${_kernelpkgver}-cachyos"            # 7.2.8-2-cachyos
 _srctag="cachyos-${_kver}-${_cachyos_src_pkgrel}"    # cachyos-7.2.8-1
 
-pkgver=_kver
-pkgrel=5
+pkgver=$_kver
+pkgrel=1
 pkgdesc="Intel iwlwifi family modules with lar_disable support, built for ${_pkgbase} ${_kernelpkgver}"
 arch=('x86_64')
-url="https://github.com/TenkyuChimata/iwlwifi-lar-patched"
+url="https://github.com/Bitbitbet/iwlwifi-lar-disabled-cachyos"
 license=('GPL-2.0-only')
 
 depends=(
@@ -54,7 +54,7 @@ sha256sums=('f848df42bd4ac31a4918188c6723660d3c6dd7591b63a6419123dcbc23ecf328'
             '4ffe1142ba2cb9de04be2af54561c8789dafc91d2a4264dda8ded8bf40d3e347'
             '28eee80046bc32777f94ac0e2a5bb7422d373d6e8b084df7ea85ec3f611bbe25'
             'fca8c7cff8e677098b8db32a23f09b522bc2c25d64a168e4db44cf2ab12117b1'
-            '1adee21969402674aa4d7c278eb6289121bfcc9a93d799ba9863aa00000878ff')
+            'c2958abe2634f4dfc75c2ca97ed842f66db43b89102250d639d71dabc7662a8c')
 
 install="${pkgname}.install"
 options=(!debug)

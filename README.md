@@ -9,7 +9,7 @@
 | 文件 | 说明 |
 |---|---|
 | `PKGBUILD` | 已适配 CachyOS 的打包脚本（AUR 原版只能用于 Arch 官方 `linux` 包） |
-| `iwlwifi-lar-patched-cachyos.install` | 安装后自动 `depmod` |
+| `iwlwifi-lar-disabled-cachyos.install` | 安装后自动 `depmod` |
 | `0001-iwlwifi-add-lar_disable.patch`  |
 | `0002-iwlwifi-lar_disable-ignore-stale-nvm-no-ir.patch` |
 | `iwlwifi-lar.conf` | `options iwlwifi lar_disable=1` |
@@ -53,7 +53,7 @@ makepkg -si          # 在本目录执行
 重启是推荐做法（也可以先 `systemctl stop NetworkManager` 再 `modprobe -r iwlmvm iwlwifi && modprobe iwlwifi`）。
 
 ```bash
-# 1) 确认加载的是我们打的模块（应指向 updates/iwlwifi-lar-patched-cachyos/）
+# 1) 确认加载的是我们打的模块（应指向 updates/iwlwifi-lar-disabled-cachyos/）
 modinfo -F filename iwlwifi
 
 # 2) 确认参数生效（应为 Y）

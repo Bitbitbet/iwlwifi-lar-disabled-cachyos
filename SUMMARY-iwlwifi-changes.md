@@ -95,7 +95,7 @@ LAR 开着时驱动走 `channel->flags = 0` 分支所以从不暴露；关掉 LA
 - `PKGBUILD`：改用 CachyOS 官方源码 tarball（`cachyos-7.2.8-1`，保留 CachyOS 对 iwlwifi 的两处自有改动
   `mld/mac80211.c`、`mld/tx.c`）；依赖 `linux-cachyos` / `linux-cachyos-headers`；
   `_kernelrelease=7.2.8-2-cachyos`；编译必须带 **`LLVM=1 LLVM_IAS=1`**（内核是 Clang+ThinLTO 构建的）。
-- 模块装到 `/usr/lib/modules/7.2.8-2-cachyos/updates/iwlwifi-lar-patched-cachyos/`，
+- 模块装到 `/usr/lib/modules/7.2.8-2-cachyos/updates/iwlwifi-lar-disabled-cachyos/`，
   `iwlwifi.ko` 与 `iwlmvm.ko` **必须成对替换**（0001 改了 `iwlwifi.ko` 导出给 `iwlmvm.ko` 的
   `iwl_parse_nvm_data()` 签名，而本内核未开 `CONFIG_MODVERSIONS`，没有 symbol CRC 兜底）。
 - `.install`：安装/升级/卸载后自动 `depmod -a 7.2.8-2-cachyos`；`/etc/modprobe.d/iwlwifi-lar.conf`
