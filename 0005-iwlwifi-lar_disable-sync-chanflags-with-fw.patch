@@ -1,0 +1,84 @@
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 09:31:41.956282027 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 09:31:54.329201446 +0800
+@@ -576,6 +576,69 @@
+ 	return resp_cp;
+ }
+ 
++/*
++ * Keep the cfg80211 channel flags in sync with what the firmware is actually
++ * willing to use.
++ *
++ * With lar_disable the driver does not hand the firmware's regulatory domain to
++ * cfg80211 (the user's `iw reg set` stays in charge), but the firmware still
++ * enforces its own view: e.g. in the CN domain the firmware marks 36-48 as
++ * INDOOR_ONLY without NVM_CHANNEL_ACTIVE, i.e. no initiation of radiation, and
++ * it does not reject an AP start there gracefully -- it asserts
++ * (NMI_INTERRUPT_UMAC_FATAL in LINK_CONFIG_CMD) and resets the device.
++ *
++ * Mark exactly those channels IEEE80211_CHAN_NO_IR (both in ->flags, so it
++ * takes effect immediately, and in ->orig_flags, which cfg80211 ORs back in on
++ * every subsequent regulatory update).  hostapd/wpa_supplicant turn NO_IR
++ * channels into HOSTAPD_CHAN_DISABLED, so automatic channel selection will
++ * simply pick a channel the firmware accepts (149-165 in CN) instead of
++ * crashing the firmware on 36.
++ *
++ * NO_IR only forbids beaconing/active scanning; client operation on those
++ * channels keeps working.
++ */
++static void iwl_mvm_lar_disable_sync_chanflags(struct iwl_mvm *mvm,
++					       const struct ieee80211_regdomain *regd)
++{
++	struct wiphy *wiphy = mvm->hw->wiphy;
++	int band;
++
++	for (band = 0; band < NUM_NL80211_BANDS; band++) {
++		struct ieee80211_supported_band *sband = wiphy->bands[band];
++		int i;
++
++		if (!sband)
++			continue;
++
++		for (i = 0; i < sband->n_channels; i++) {
++			struct ieee80211_channel *chan = &sband->channels[i];
++			u32 freq = ieee80211_channel_to_khz(chan);
++			bool no_ir = true;
++			int j;
++
++			for (j = 0; j < regd->n_reg_rules; j++) {
++				const struct ieee80211_reg_rule *rule =
++					&regd->reg_rules[j];
++
++				if (freq < rule->freq_range.start_freq_khz ||
++				    freq > rule->freq_range.end_freq_khz)
++					continue;
++				if (!(rule->flags & NL80211_RRF_NO_IR_ALL))
++					no_ir = false;
++				break;
++			}
++
++			if (no_ir) {
++				chan->flags |= IEEE80211_CHAN_NO_IR;
++				chan->orig_flags |= IEEE80211_CHAN_NO_IR;
++			} else {
++				chan->flags &= ~IEEE80211_CHAN_NO_IR;
++				chan->orig_flags &= ~IEEE80211_CHAN_NO_IR;
++			}
++		}
++	}
++}
++
+ int iwl_mvm_init_mcc(struct iwl_mvm *mvm)
+ {
+ 	bool tlv_lar;
+@@ -658,8 +721,10 @@
+ 	 */
+ 	if (!iwlwifi_mod_params.lar_disable)
+ 		retval = regulatory_set_wiphy_regd_sync(mvm->hw->wiphy, regd);
+-	else
++	else {
+ 		retval = 0;
++		iwl_mvm_lar_disable_sync_chanflags(mvm, regd);
++	}
+ 	kfree(regd);
+ 	return retval;
+ }

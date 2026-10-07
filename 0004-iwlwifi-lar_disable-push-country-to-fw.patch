@@ -1,0 +1,85 @@
+--- a/drivers/net/wireless/intel/iwlwifi/iwl-modparams.h	2026-10-07 00:21:18.169370704 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/iwl-modparams.h	2026-10-07 00:21:27.038207325 +0800
+@@ -60,6 +60,11 @@
+  * @uapsd_disable: disable U-APSD, see &enum iwl_uapsd_disable, default =
+  *	IWL_DISABLE_UAPSD_BSS | IWL_DISABLE_UAPSD_P2P_CLIENT
+  * @lar_disable: disable LAR (regulatory), default = 0
++ * @lar_country: 2-letter country code (e.g. "CN") to program into the
++ *	firmware's own MCC when LAR is disabled with @lar_disable.  The
++ *	firmware needs a valid MCC before it accepts e.g. an AP on a 5GHz
++ *	channel; the alpha2 selected with `iw reg set` is not visible to the
++ *	driver, so it has to be provided here as well.
+  * @disable_11ac: disable VHT capabilities, default = false.
+  * @remove_when_gone: remove an inaccessible device from the PCIe bus.
+  * @enable_ini: enable new FW debug infratructure (INI TLVs)
+@@ -80,6 +85,7 @@
+ 	char *nvm_file;
+ 	u32 uapsd_disable;
+ 	bool lar_disable;
++	char *lar_country;
+ 	bool disable_11ac;
+ 	/**
+ 	 * @disable_11ax: disable HE capabilities, default = false
+--- a/drivers/net/wireless/intel/iwlwifi/iwl-drv.c	2026-10-07 00:21:18.169390688 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/iwl-drv.c	2026-10-07 00:21:29.711190811 +0800
+@@ -2166,6 +2166,10 @@
+ module_param_named(lar_disable, iwlwifi_mod_params.lar_disable, bool, 0444);
+ MODULE_PARM_DESC(lar_disable, "disable LAR functionality (default: N)");
+ 
++module_param_named(lar_country, iwlwifi_mod_params.lar_country, charp, 0444);
++MODULE_PARM_DESC(lar_country,
++		 "2-letter country code to program into the FW MCC when lar_disable=1 (e.g. CN)");
++
+ module_param_named(uapsd_disable, iwlwifi_mod_params.uapsd_disable, uint, 0644);
+ MODULE_PARM_DESC(uapsd_disable,
+ 		 "disable U-APSD functionality bitmap 1: BSS 2: P2P Client (default: 3)");
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 00:21:18.170262527 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 00:21:45.381094995 +0800
+@@ -623,8 +623,27 @@
+ 	if (IS_ERR_OR_NULL(regd))
+ 		return -EIO;
+ 
+-	if (iwl_mvm_is_wifi_mcc_supported(mvm) &&
+-	    !iwl_bios_get_mcc(&mvm->fwrt, mcc)) {
++	/*
++	 * lar_disable: the firmware needs a valid MCC of its own.  Without it
++	 * the firmware asserts (NMI_INTERRUPT_UMAC_FATAL in LINK_CONFIG_CMD)
++	 * as soon as an AP/IBSS is started on a 5GHz channel.  The alpha2 the
++	 * user picked with `iw reg set` is not visible to the driver, so it
++	 * must be given with the lar_country module parameter; fall back to
++	 * the ACPI/BIOS MCC when it is not set.
++	 */
++	if (iwlwifi_mod_params.lar_country &&
++	    iwlwifi_mod_params.lar_country[0] >= 'A' &&
++	    iwlwifi_mod_params.lar_country[0] <= 'Z' &&
++	    iwlwifi_mod_params.lar_country[1] >= 'A' &&
++	    iwlwifi_mod_params.lar_country[1] <= 'Z') {
++		kfree(regd);
++		regd = iwl_mvm_get_regdomain(mvm->hw->wiphy,
++					     iwlwifi_mod_params.lar_country,
++					     MCC_SOURCE_BIOS, NULL);
++		if (IS_ERR_OR_NULL(regd))
++			return -EIO;
++	} else if (iwl_mvm_is_wifi_mcc_supported(mvm) &&
++		   !iwl_bios_get_mcc(&mvm->fwrt, mcc)) {
+ 		kfree(regd);
+ 		regd = iwl_mvm_get_regdomain(mvm->hw->wiphy, mcc,
+ 					     MCC_SOURCE_BIOS, NULL);
+@@ -667,9 +686,15 @@
+ 		/*
+ 		 * lar_disable: the firmware may send LAR notifications now that
+ 		 * we programmed its regdomain.  Ignore them -- cfg80211 must
+-		 * keep following the user's regulatory domain.
++		 * keep following the user's regulatory domain -- but log the
++		 * MCC the firmware switched to, it is useful when debugging.
+ 		 */
+-		if (!iwlwifi_mod_params.lar_disable)
++		if (iwlwifi_mod_params.lar_disable)
++			IWL_INFO(mvm,
++				 "lar_disable: firmware MCC is now %c%c (ignored for cfg80211)\n",
++				 le16_to_cpu(notif->mcc) >> 8,
++				 le16_to_cpu(notif->mcc) & 0xff);
++		else
+ 			WARN_ON_ONCE(1);
+ 		return;
+ 	}

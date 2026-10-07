@@ -1,0 +1,32 @@
+--- a/drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c	2026-10-06 23:55:42.397716783 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c	2026-10-06 23:55:52.888776154 +0800
+@@ -423,6 +423,29 @@
+ 		else
+ 			channel->flags = 0;
+ 
++		/*
++		 * When LAR is disabled on purpose (lar_disable=1) the legacy
++		 * per-channel NVM flags must not be trusted: on LAR-era NVM
++		 * NVM_CHANNEL_ACTIVE/NVM_CHANNEL_IBSS are deprecated and no
++		 * longer set for the 5GHz channels, so iwl_get_channel_flags()
++		 * marks every 5GHz channel IEEE80211_CHAN_NO_IR above.
++		 *
++		 * cfg80211 stores that as chan->orig_flags and ORs it into the
++		 * channel flags on every regulatory update (handle_channel_*()
++		 * in net/wireless/reg.c), so the NO_IR bit can never be cleared
++		 * again: whatever country is set with `iw reg set`, all 5GHz
++		 * channels stay NO_IR and starting an AP on 5GHz fails.  AP mode
++		 * cannot use the REGULATORY_ENABLE_RELAX_NO_IR exception either
++		 * (that one only covers P2P-GO/station).
++		 *
++		 * Drop only the stale NO_IR bit and let cfg80211's regulatory
++		 * domain -- which the user fully controls in this mode -- decide.
++		 * RADAR/DFS and all other NVM restrictions are kept.
++		 */
++		if (iwlwifi_mod_params.lar_disable)
++			channel->flags &= ~(IEEE80211_CHAN_NO_IR |
++					    IEEE80211_CHAN_IR_CONCURRENT);
++
+ 		if (fw_has_capa(&fw->ucode_capa,
+ 				IWL_UCODE_TLV_CAPA_MONITOR_PASSIVE_CHANS))
+ 			channel->flags |= IEEE80211_CHAN_CAN_MONITOR;

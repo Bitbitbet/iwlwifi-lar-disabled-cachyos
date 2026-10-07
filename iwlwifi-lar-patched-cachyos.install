@@ -1,0 +1,32 @@
+_rebuild_moddeps() {
+  local pkgname="iwlwifi-lar-patched-cachyos"
+  local krel
+
+  krel="$(cat "/usr/share/${pkgname}/kernel-release" 2>/dev/null || uname -r)"
+
+  echo "==> 重建模块依赖索引: depmod -a ${krel}"
+  depmod -a "${krel}" || depmod -a || echo "==> 警告: depmod 失败，请手动执行 depmod -a"
+
+  # iwlwifi 通常不在 initramfs 里（本机 initramfs 已确认不含 iwlwifi/iwlmvm），
+  # 因此默认不需要重建 initramfs。若你的 initramfs 确实包含 iwlwifi，请手动执行
+  # mkinitcpio -P（先确认 /etc/mkinitcpio.conf 未把 iwlwifi 加进 MODULES）。
+  echo "==> 无需重建 initramfs（iwlwifi 不在其中）。"
+}
+
+post_install() {
+  _rebuild_moddeps
+  echo "==> iwlwifi-lar-patched-cachyos 已安装。"
+  echo "==> 已写入 /etc/modprobe.d/iwlwifi-lar.conf: options iwlwifi lar_disable=1"
+  echo "==> 请重启（或卸载后重新加载 iwlwifi/iwlmvm）使其生效。"
+}
+
+post_upgrade() {
+  _rebuild_moddeps
+  echo "==> 已升级，请重启使其生效。"
+}
+
+post_remove() {
+  # 移除后要恢复使用内核自带的 iwlwifi，必须重跑 depmod
+  _rebuild_moddeps
+  echo "==> 已移除。请重启以恢复使用内核自带的 iwlwifi 模块。"
+}

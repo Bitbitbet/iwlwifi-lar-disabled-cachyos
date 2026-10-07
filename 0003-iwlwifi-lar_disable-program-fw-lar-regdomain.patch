@@ -1,0 +1,106 @@
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/ops.c	2026-10-07 00:09:17.359936107 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/ops.c	2026-10-07 00:09:26.048244993 +0800
+@@ -865,8 +865,18 @@
+ 	ret = iwl_run_init_mvm_ucode(mvm);
+ 	if (ret && ret != -ERFKILL)
+ 		iwl_fw_dbg_error_collect(&mvm->fwrt, FW_DBG_TRIGGER_DRIVER);
+-	if (!ret && iwl_mvm_is_lar_supported(mvm)) {
+-		mvm->hw->wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
++	/*
++	 * lar_disable: cfg80211 must stay in charge of the regulatory domain
++	 * (so the wiphy must NOT be marked self-managed), but the firmware
++	 * still has to program its LAR regdomain.  Without it the firmware has
++	 * no regulatory state at all and asserts (NMI_INTERRUPT_UMAC_FATAL in
++	 * LINK_CONFIG_CMD) as soon as an AP/IBSS is started on a 5GHz channel.
++	 */
++	if (!ret && (iwl_mvm_is_lar_supported(mvm) ||
++		     iwlwifi_mod_params.lar_disable)) {
++		if (iwl_mvm_is_lar_supported(mvm))
++			mvm->hw->wiphy->regulatory_flags |=
++				REGULATORY_WIPHY_SELF_MANAGED;
+ 		ret = iwl_mvm_init_mcc(mvm);
+ 	}
+ 
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 00:09:17.360809836 +0800
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/nvm.c	2026-10-07 00:09:41.705788452 +0800
+@@ -425,8 +425,17 @@
+ 	unsigned int pkt_len;
+ 	u16 mcc;
+ 
+-	if (WARN_ON_ONCE(!iwl_mvm_is_lar_supported(mvm)))
+-		return ERR_PTR(-EOPNOTSUPP);
++	if (!iwl_mvm_is_lar_supported(mvm)) {
++		/*
++		 * With lar_disable this command is still needed to program the
++		 * firmware's LAR regdomain (the FW asserts on 5GHz AP/IBSS
++		 * otherwise); cfg80211 keeps its own regulatory domain.
++		 */
++		if (!iwlwifi_mod_params.lar_disable) {
++			WARN_ON_ONCE(1);
++			return ERR_PTR(-EOPNOTSUPP);
++		}
++	}
+ 
+ 	cmd.len[0] = sizeof(struct iwl_mcc_update_cmd);
+ 
+@@ -586,16 +595,21 @@
+ 				 nvm_lar ? "enabled" : "disabled");
+ 	}
+ 
+-	if (!iwl_mvm_is_lar_supported(mvm))
++	if (!iwl_mvm_is_lar_supported(mvm) && !iwlwifi_mod_params.lar_disable)
+ 		return 0;
+ 
+ 	/*
+ 	 * try to replay the last set MCC to FW. If it doesn't exist,
+ 	 * queue an update to cfg80211 to retrieve the default alpha2 from FW.
++	 * With lar_disable we must not touch cfg80211's regulatory domain at
++	 * all, so skip this step (its purpose is to re-sync cfg80211 with the
++	 * firmware's regdomain).
+ 	 */
+-	retval = iwl_mvm_init_fw_regd(mvm, true);
+-	if (retval != -ENOENT)
+-		return retval;
++	if (!iwlwifi_mod_params.lar_disable) {
++		retval = iwl_mvm_init_fw_regd(mvm, true);
++		if (retval != -ENOENT)
++			return retval;
++	}
+ 
+ 	/*
+ 	 * Driver regulatory hint for initial update, this also informs the
+@@ -618,7 +632,15 @@
+ 			return -EIO;
+ 	}
+ 
+-	retval = regulatory_set_wiphy_regd_sync(mvm->hw->wiphy, regd);
++	/*
++	 * With lar_disable the firmware is only *told* the MCC; the regulatory
++	 * domain cfg80211 uses must stay the one the user set with
++	 * `iw reg set`, so do not push the firmware's answer back.
++	 */
++	if (!iwlwifi_mod_params.lar_disable)
++		retval = regulatory_set_wiphy_regd_sync(mvm->hw->wiphy, regd);
++	else
++		retval = 0;
+ 	kfree(regd);
+ 	return retval;
+ }
+@@ -641,8 +663,16 @@
+ 		return;
+ 	}
+ 
+-	if (WARN_ON_ONCE(!iwl_mvm_is_lar_supported(mvm)))
++	if (!iwl_mvm_is_lar_supported(mvm)) {
++		/*
++		 * lar_disable: the firmware may send LAR notifications now that
++		 * we programmed its regdomain.  Ignore them -- cfg80211 must
++		 * keep following the user's regulatory domain.
++		 */
++		if (!iwlwifi_mod_params.lar_disable)
++			WARN_ON_ONCE(1);
+ 		return;
++	}
+ 
+ 	mcc[0] = le16_to_cpu(notif->mcc) >> 8;
+ 	mcc[1] = le16_to_cpu(notif->mcc) & 0xff;
