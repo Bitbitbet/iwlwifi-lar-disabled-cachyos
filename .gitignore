@@ -1,0 +1,8 @@
+# makepkg 产物
+pkg/
+src/
+*.pkg.tar.zst
+*.pkg.tar.xz
+
+# 构建用的内核源码 tarball（makepkg 会自动下载/复用）
+cachyos-*.tar.gz

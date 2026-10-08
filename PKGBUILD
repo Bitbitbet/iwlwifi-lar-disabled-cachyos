@@ -19,7 +19,7 @@ _kernelrelease="${_kernelpkgver}-cachyos"            # 7.2.8-2-cachyos
 _srctag="cachyos-${_kver}-${_cachyos_src_pkgrel}"    # cachyos-7.2.8-1
 
 pkgver=$_kver
-pkgrel=1
+pkgrel=2
 pkgdesc="Intel iwlwifi family modules with lar_disable support, built for ${_pkgbase} ${_kernelpkgver}"
 arch=('x86_64')
 url="https://github.com/Bitbitbet/iwlwifi-lar-disabled-cachyos"
@@ -46,6 +46,7 @@ source=(
   '0003-iwlwifi-lar_disable-program-fw-lar-regdomain.patch'
   '0004-iwlwifi-lar_disable-push-country-to-fw.patch'
   '0005-iwlwifi-lar_disable-sync-chanflags-with-fw.patch'
+  '0006-iwlwifi-lar_disable-activate-unii1-in-fw.patch'
   'iwlwifi-lar.conf'
 )
 sha256sums=('f848df42bd4ac31a4918188c6723660d3c6dd7591b63a6419123dcbc23ecf328'
@@ -54,6 +55,7 @@ sha256sums=('f848df42bd4ac31a4918188c6723660d3c6dd7591b63a6419123dcbc23ecf328'
             '4ffe1142ba2cb9de04be2af54561c8789dafc91d2a4264dda8ded8bf40d3e347'
             '28eee80046bc32777f94ac0e2a5bb7422d373d6e8b084df7ea85ec3f611bbe25'
             'fca8c7cff8e677098b8db32a23f09b522bc2c25d64a168e4db44cf2ab12117b1'
+            'cb6f79e6c4b2364151f97a0db57848cc3b6fa1e36f16184b4a1185d14fe72105'
             'c2958abe2634f4dfc75c2ca97ed842f66db43b89102250d639d71dabc7662a8c')
 
 install="${pkgname}.install"
@@ -79,6 +81,15 @@ prepare() {
   # 0005: 按固件的裁决把 no IR 写回信道标志（flags + orig_flags），
   #       这样 hostapd 自动选信道时会跳过固件不认的 36-48，直接落到 149
   patch -Np1 -i "${srcdir}/0005-iwlwifi-lar_disable-sync-chanflags-with-fw.patch"
+
+  # 0006: 让固件自己在 CN 等法规域下把 UNII-1（36-48）当成可用信道。
+  #       这些信道固件标的是 INDOOR_ONLY 且没有 ACTIVE（= 不允许主动发射），
+  #       OEM 本来要通过 ACPI _DSM(8) 的 ACTIVATE_5G2_IN_WW 位来激活；
+  #       BIOS 没给这一位时由驱动补上，这样固件与 cfg80211 的判定一致，
+  #       NetworkManager 自动选信道（它只会在 36-48 里挑）才有得选。
+  #       若固件对 CN 域不认这一位，0005 仍会照旧把 36-48 标成 no IR，
+  #       行为退回 0005 的状态（只是多一条 dmesg 信息）。
+  patch -Np1 -i "${srcdir}/0006-iwlwifi-lar_disable-activate-unii1-in-fw.patch"
 }
 
 build() {

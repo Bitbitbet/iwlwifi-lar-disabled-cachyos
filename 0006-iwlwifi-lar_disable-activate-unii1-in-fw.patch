@@ -1,0 +1,39 @@
+--- a/drivers/net/wireless/intel/iwlwifi/mvm/fw.c
++++ b/drivers/net/wireless/intel/iwlwifi/mvm/fw.c
+@@ -1481,6 +1481,36 @@
+ 	if (!ret)
+ 		cmd->oem_11be_allow_bitmap = cpu_to_le32(value);
+ 
++	/*
++	 * lar_disable: the firmware keeps its own regulatory state and in a
++	 * number of country domains (CN among them) it marks UNII-1 (36-48) as
++	 * INDOOR_ONLY without ACTIVE, i.e. no initiation of radiation -- an AP
++	 * start there asserts the firmware (NMI_INTERRUPT_UMAC_FATAL in
++	 * LINK_CONFIG_CMD) instead of being rejected cleanly.  The OEM normally
++	 * makes those channels usable through the ACPI _DSM function
++	 * DSM_FUNC_ACTIVATE_CHANNEL; when the BIOS does not provide the bit,
++	 * set it here using the firmware API's own "Activate UNII-1 (5.2GHz)"
++	 * override.  Firmware and cfg80211 then agree on the channel state
++	 * (iwl_mvm_lar_disable_sync_chanflags() follows the firmware's verdict)
++	 * instead of the driver claiming to cfg80211 that the firmware will
++	 * accept a channel it will not.
++	 *
++	 * This has to happen after the cmd_ver based masking above, which can
++	 * clear the bit again, and before the "is there anything to send at
++	 * all" check below, which skips the command entirely when the BIOS
++	 * supplied no bitmap.  chan_state_active_bitmap only exists from
++	 * LARI_CONFIG_CHANGE version 6 on.
++	 */
++	if (iwlwifi_mod_params.lar_disable && cmd_ver >= 6) {
++		u32 active = le32_to_cpu(cmd->chan_state_active_bitmap) |
++			     ACTIVATE_5G2_IN_WW_MASK;
++
++		cmd->chan_state_active_bitmap = cpu_to_le32(active);
++		IWL_INFO(fwrt,
++			 "lar_disable: activating UNII-1 (5.2GHz) in the firmware LARI config (cmd_ver=%d)\n",
++			 cmd_ver);
++	}
++
+ 	if (cmd->config_bitmap ||
+ 	    cmd->oem_uhb_allow_bitmap ||
+ 	    cmd->oem_11ax_allow_bitmap ||

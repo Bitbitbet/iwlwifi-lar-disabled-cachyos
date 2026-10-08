@@ -8,8 +8,8 @@
 源码基线：CachyOS 官方内核源码 `cachyos-7.2.8-1`（= PKGBUILD 里 `source=` 的那个 release asset，
 已用 GitHub blob SHA 逐文件验证与 git tag 完全一致，294 文件 0 差异）。
 
-补丁共 5 个，全部由 `PKGBUILD` 的 `prepare()` 按序应用。0001 是 AUR 原补丁未作任何修改，
-0002–0005 是本次新增。
+补丁共 6 个，全部由 `PKGBUILD` 的 `prepare()` 按序应用。0001 是 AUR 原补丁未作任何修改，
+0002–0006 是本次新增。
 
 ---
 
@@ -90,6 +90,39 @@ LAR 开着时驱动走 `channel->flags = 0` 分支所以从不暴露；关掉 LA
 
 ---
 
+## 0006 — 让固件自己把 UNII-1（36–48）激活
+
+| 文件 | 位置 | 改动 |
+|---|---|---|
+| `mvm/fw.c` | `iwl_mvm_fill_lari_config()`：在所有 ACPI `_DSM` 读取与 `cmd_ver` 掩码**之后**、末尾 `if (cmd->config_bitmap \|\| …)` **之前** | `lar_disable && cmd_ver >= 6` 时执行 `cmd->chan_state_active_bitmap \|= ACTIVATE_5G2_IN_WW_MASK`（BIT(4)），并 `IWL_INFO` 打一行日志 |
+
+原因：36–48 在固件的 CN 表里是 `INDOOR_ONLY` 且没有 `ACTIVE`（`0xf61`），**不是驱动映射错了**——
+`NO_IR` 来自 `BIT(3)=0`，与 `INDOOR_ONLY`（`BIT(5)=1`）是两位独立的信息：
+前者意思是"被动信道，不许主动发射/beacon"，后者才是"仅限室内"。
+固件把"UNII-1 能不能主动发射"交给 OEM 决定：ACPI `_DSM` 功能号 8
+（`DSM_FUNC_ACTIVATE_CHANNEL`，`fw/regulatory.h:124`）的 `chan_state_active_bitmap`，
+其中 `fw/api/nvm-reg.h:715` 定义 `ACTIVATE_5G2_IN_WW_MASK = BIT(4)`（"Activate UNII-1 (5.2GHz) for World Wide"，
+上游提交 `1f578d4f2d52`：给 OEM 按地理位置覆盖信道状态用）。
+本机 BIOS 没提供这一位，而且驱动只有在**至少一个** bitmap 非零时才发送 `LARI_CONFIG_CHANGE`
+（`mvm/fw.c` 末尾 `else return 1;`），于是固件始终把 UNII-1 保持在"室内+被动"。
+
+0006 的做法是让**固件**改裁决，而不是驱动在 cfg80211 侧假装信道可用
+（后者会重演 `LINK_CONFIG_CMD` 上的 `NMI_INTERRUPT_UMAC_FATAL` 崩溃）。
+顺序天然合适：`iwl_mvm_lari_cfg()`（`mvm/fw.c:1762` 调用）先于 `iwl_mvm_init_mcc()`（同文件 1859 调用），
+所以 0005 读到的是固件更新之后的法规域。
+
+边界情况：
+
+- `chan_state_active_bitmap` 字段从 `LARI_CONFIG_CHANGE` **版本 6** 才有，
+  代码用 `cmd_ver >= 6` 保护：固件太老时 0006 自动不生效（dmesg 里也不会有那行日志）。
+- 该位名字里的 "WW"（World Wide）意味着固件可能只在世界域应用它。
+  若 CN 域下 36–48 仍被标成 `no IR`，行为自动退回 0005 的状态——显式 `channel=149` 依旧可用，
+  只是 NetworkManager 的自动选信道（它只会考虑 U-NII-1）仍然不行。
+- 日志行（`IWL_INFO`，不需要开 debug 参数就能看到）：
+  `lar_disable: activating UNII-1 (5.2GHz) in the firmware LARI config (cmd_ver=N)`
+
+---
+
 ## 打包侧（非 iwlwifi 代码）
 
 - `PKGBUILD`：改用 CachyOS 官方源码 tarball（`cachyos-7.2.8-1`，保留 CachyOS 对 iwlwifi 的两处自有改动
@@ -108,16 +141,20 @@ LAR 开着时驱动走 `channel->flags = 0` 分支所以从不暴露；关掉 LA
 
 | 项目 | 结果 |
 |---|---|
-| 5 个补丁在 `cachyos-7.2.8-1` 源码上 `patch -Np1` | 全部干净应用 |
-| `LLVM=1` 编译 | 0 error，生成 iwlwifi/iwlmvm/iwlmld/iwldvm 四个 .ko |
+| 6 个补丁在 `cachyos-7.2.8-1` 源码上 `patch -Np1`（makepkg 从零解包） | 全部干净应用，0 fuzz 失败 |
+| `LLVM=1` 编译 | 0 error / 0 warning，生成 iwlwifi/iwlmvm/iwlmld/iwldvm 四个 .ko |
 | vermagic | `7.2.8-2-cachyos SMP preempt mod_unload`，与运行内核一致 |
 | 模块参数 | `lar_disable`、`lar_country` 均存在 |
-| 导出符号集合 | stock 149 / 补丁版 149，完全一致 |
+| 导出符号集合（T/R） | iwlwifi、iwlmvm 与 pkgrel=1（已知可正常加载）完全一致 |
 | 未定义符号集合（决定能否加载） | iwlwifi 250/250、iwlmvm 342/342、iwlmld 285/285、iwldvm 176/176，**0 差异** |
-| srcversion（源码指纹） | iwlmvm / iwlmld / iwldvm 与内核自带模块**完全一致** |
+| srcversion（源码指纹） | 仅 `iwlmvm` 因 0006 变化（`7340961CF59517B8ECE09B1` → `7567ECA67B1B629F00D444E`），其余三个与 pkgrel=1 完全一致 |
+| 0006 编译进模块 | `strings iwlmvm.ko` 命中 `lar_disable: activating UNII-1 (5.2GHz) in the firmware LARI config (cmd_ver=%d)` |
 | CachyOS vs vanilla 的 iwlwifi | 307 个文件里只有 `mld/mac80211.c`、`mld/tx.c` 不同（固件错误保护，与 LAR 无关） |
 
 实际效果（用户现场日志验证）：`iw phy` 的 5GHz `no IR` 消失 → 固件 MCC 变成 `CN`
 （`iwl_mvm_update_mcc MCC response status: 0x1. new MCC: 0x434e ('CN') n_chans: 110`）→
 `channel=149` 热点正常；`channel=0` 因 NetworkManager 只考虑 U-NII-1 而失败，但已变成
 **cfg80211 干净拒绝**，不再产生固件错误（0005 的目的达成）。
+
+0006（pkgrel=2）针对上述 `channel=0` 问题：让固件自己激活 UNII-1。**是否真的在 CN 域生效待实测**，
+判断方法见 `README.md`（`dmesg | grep "activating UNII-1"` + `iw phy` 看 36–48 是否还有 `no IR`）。

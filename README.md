@@ -10,9 +10,14 @@
 |---|---|
 | `PKGBUILD` | 已适配 CachyOS 的打包脚本（AUR 原版只能用于 Arch 官方 `linux` 包） |
 | `iwlwifi-lar-disabled-cachyos.install` | 安装后自动 `depmod` |
-| `0001-iwlwifi-add-lar_disable.patch`  |
-| `0002-iwlwifi-lar_disable-ignore-stale-nvm-no-ir.patch` |
-| `iwlwifi-lar.conf` | `options iwlwifi lar_disable=1` |
+| `0001-iwlwifi-add-lar_disable.patch` | AUR 原补丁（未改动）：加 `lar_disable` 模块参数，关掉 LAR |
+| `0002-…-ignore-stale-nvm-no-ir.patch` | `lar_disable` 时不再信任 NVM 里已废弃的 `NO_IR` 位，让 `iw reg set` 说了算 |
+| `0003-…-program-fw-lar-regdomain.patch` | 关 LAR 也照样给固件编好法规域（否则固件在 5GHz 起 AP 时 NMI 崩溃） |
+| `0004-…-push-country-to-fw.patch` | 新增 `lar_country` 参数，把国家码推进固件 MCC |
+| `0005-…-sync-chanflags-with-fw.patch` | 把固件对信道的裁决写回 cfg80211（`no IR`），把"固件崩溃"变成"干净拒绝" |
+| `0006-…-activate-unii1-in-fw.patch` | 让固件把 UNII-1（36–48）当成可用信道（补上 BIOS 没给的 OEM 激活位），使 5GHz 自动选信道可行 |
+| `iwlwifi-lar.conf` | `options iwlwifi lar_disable=1 lar_country=CN` |
+| `SUMMARY-iwlwifi-changes.md` | 改动细节与验证记录 |
 
 ## 为什么 5GHz 热点一开始起不来（0002 修复的原因）
 
@@ -80,15 +85,28 @@ iw reg get                  # 应显示 country CN
 
 结论与建议：
 
-- **`band=a` 时请显式指定信道**：`149 / 153 / 157 / 161 / 165`（非 DFS 且固件允许）。
+- **0006（本包 pkgrel≥2）之后，`band=a` + `channel=0` 应该也能用了**：0006 直接让**固件**把 UNII-1（36–48）
+  当成可主动发射的信道，于是 0005 的同步不再给它们打 `no IR`，NM 那张写死的 U-NII-1 候选表就有得选。
+  验证：
+  ```bash
+  sudo dmesg | grep -i "activating UNII-1"
+  #  应出现：lar_disable: activating UNII-1 (5.2GHz) in the firmware LARI config (cmd_ver=N)
+
+  iw phy phy0 | awk '/Band 5/,/Band 6/' | head -40
+  #  36–48 应不再显示 no IR
+  ```
+  - 如果 `cmd_ver < 6`（固件太老，`LARI_CONFIG_CHANGE` 还没有 `chan_state_active_bitmap` 字段），
+    这一位根本发不出去，0006 自动失效（dmesg 里不会有上面那行）。
+  - 如果 `cmd_ver >= 6` 但 36–48 依旧是 `no IR`，说明固件只在**世界域（WW）**认这一位，
+    CN 这种具体国家域不认（该位的名字就是 "Activate UNII-1 for **World Wide**"）。
+    此时行为自动退回 0005 的状态：显式指定信道照旧可用，只是自动选信道不行。
+- 显式指定信道永远最稳：`149 / 153 / 157 / 161 / 165`（非 DFS 且固件允许）。
   ```bash
   sudo nmcli connection modify <连接名> 802-11-wireless.channel 149
   ```
-- 想要"自动选信道"，就用 `band=bg`（2.4GHz）：2.4GHz 在固件 CN 域里是 `ACTIVE`，NM 的自动选择也只在 2.4GHz 里挑，正常工作。
-- 如果一定要 `band=a` + `channel=0`，唯一的办法是让**固件**认为 U-NII-1 可主动发射，即把
-  `/etc/modprobe.d/iwlwifi-lar.conf` 里的 `lar_country=CN` 改成 `lar_country=US`（固件的表里 36–48 是 ACTIVE）。
-  代价：**固件会按 US 的功率/DFS 规则工作**（cfg80211 侧仍是 `iw reg set CN`），属于法规上的不一致用法。
-- 或者给 NetworkManager 打补丁，把 `freqs_a[]` 加上 `5745/5765/5785/5805/5825`。
+- 退路（不在乎法规一致性时）：把 `lar_country` 改成 `US`，固件的表里 36–48 是 `ACTIVE`。
+  代价：**固件**按 US 的功率/DFS 规则工作，而 cfg80211 侧仍是 `iw reg set CN`。
+- 最后手段才是给 NetworkManager 打补丁，把 `freqs_a[]` 加上 `5745/5765/5785/5805/5825`。
 
 0005 仍然有价值：它把"固件断言崩设备"变成了"cfg80211 干净拒绝"，因此 dmesg 不再刷固件错误，
 并且任何显式选 36–48 的尝试也不会再把固件打崩。
