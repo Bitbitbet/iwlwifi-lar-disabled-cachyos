@@ -10,16 +10,16 @@
 pkgname=iwlwifi-lar-disabled-cachyos
 
 _pkgbase=linux-cachyos
-_kver=7.2.8
+_kver=7.2.9
 _kernel_pkgrel=2
-_cachyos_src_pkgrel=1
+_cachyos_src_pkgrel=2
 
-_kernelpkgver="${_kver}-${_kernel_pkgrel}"          # 7.2.8-2
-_kernelrelease="${_kernelpkgver}-cachyos"            # 7.2.8-2-cachyos
-_srctag="cachyos-${_kver}-${_cachyos_src_pkgrel}"    # cachyos-7.2.8-1
+_kernelpkgver="${_kver}-${_kernel_pkgrel}"          # 7.2.9-2
+_kernelrelease="${_kernelpkgver}-cachyos"            # 7.2.9-2-cachyos
+_srctag="cachyos-${_kver}-${_cachyos_src_pkgrel}"    # cachyos-7.2.9-2
 
 pkgver=$_kver
-pkgrel=2
+pkgrel=1
 pkgdesc="Intel iwlwifi family modules with lar_disable support, built for ${_pkgbase} ${_kernelpkgver}"
 arch=('x86_64')
 url="https://github.com/Bitbitbet/iwlwifi-lar-disabled-cachyos"
@@ -49,7 +49,7 @@ source=(
   '0006-iwlwifi-lar_disable-activate-unii1-in-fw.patch'
   'iwlwifi-lar.conf'
 )
-sha256sums=('f848df42bd4ac31a4918188c6723660d3c6dd7591b63a6419123dcbc23ecf328'
+sha256sums=('2da9e6ffe31436657f46909db059059946dac22c2ac6cde05e49a66d61acfcba'
             'da2ab52ccdef2b93088c9e0c56bc1c166bf748d021b529cb2af2ff6c5d9e85cc'
             '1ddec120797ae6707e2c61928412e6a14f012a3df1811299ee2ff07e88143ccb'
             '4ffe1142ba2cb9de04be2af54561c8789dafc91d2a4264dda8ded8bf40d3e347'
