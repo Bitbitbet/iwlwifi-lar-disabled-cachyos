@@ -2,7 +2,7 @@
 pkgname=iwlwifi-lar-disabled-cachyos
 
 _pkgbase=linux-cachyos
-_kver=7.3.3
+_kver=7.3.4
 _kernel_pkgrel=1
 _cachyos_src_pkgrel=1
 
@@ -41,7 +41,7 @@ source=(
   '0006-iwlwifi-lar_disable-activate-unii1-in-fw.patch'
   'iwlwifi-lar.conf'
 )
-sha256sums=('54a507176bc2b1c4c8a14f087ada08f92d473c6af28ecfc3e9adb1d5c62020ac'
+sha256sums=('695c641edd5df9848f931c06bf97a30734e5f28910367937d5fea235cfd39535'
             'da2ab52ccdef2b93088c9e0c56bc1c166bf748d021b529cb2af2ff6c5d9e85cc'
             '1ddec120797ae6707e2c61928412e6a14f012a3df1811299ee2ff07e88143ccb'
             '4ffe1142ba2cb9de04be2af54561c8789dafc91d2a4264dda8ded8bf40d3e347'
